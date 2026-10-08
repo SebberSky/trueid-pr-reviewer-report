@@ -58,7 +58,12 @@ async function getLatest(env) {
     if (latest) return JSON.parse(latest);
   }
   const { since, until } = previousMonth(new Date());
-  return runAndStore(env, since, until);
+  try {
+    return await runAndStore(env, since, until);
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : "Unable to load latest report");
+    return null;
+  }
 }
 
 async function collect(env, since, until) {
