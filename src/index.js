@@ -23,17 +23,16 @@ export default {
         return json(result);
       }
       if (request.method === "GET" && url.pathname === "/api/latest") {
-        const latest = await env.STATS.get("stats:latest");
-        return latest ? json(JSON.parse(latest)) : json({ error: "No report has been generated yet" }, 404);
+        const latest = await getLatest(env);
+        return latest ? json(latest) : json({ error: "No report has been generated yet" }, 404);
       }
       const month = url.pathname.match(/^\/api\/(\d{4}-\d{2})$/)?.[1];
       if (request.method === "GET" && month) {
-        const report = await env.STATS.get(`stats:${month}`);
+        const report = env.STATS ? await env.STATS.get(`stats:${month}`) : null;
         return report ? json(JSON.parse(report)) : json({ error: "Report not found" }, 404);
       }
       if (request.method === "GET" && (url.pathname === "/" || url.pathname === "/index.html")) {
-        const latest = await env.STATS.get("stats:latest");
-        return htmlReport(latest ? JSON.parse(latest) : null);
+        return htmlReport(await getLatest(env));
       }
       return json({ error: "Not found" }, 404);
     } catch (error) {
@@ -45,10 +44,21 @@ export default {
 
 async function runAndStore(env, since, until) {
   const report = await collect(env, since, until);
-  const month = since.slice(0, 7);
-  await env.STATS.put(`stats:${month}`, JSON.stringify(report));
-  await env.STATS.put("stats:latest", JSON.stringify(report));
+  if (env.STATS) {
+    const month = since.slice(0, 7);
+    await env.STATS.put(`stats:${month}`, JSON.stringify(report));
+    await env.STATS.put("stats:latest", JSON.stringify(report));
+  }
   return report;
+}
+
+async function getLatest(env) {
+  if (env.STATS) {
+    const latest = await env.STATS.get("stats:latest");
+    if (latest) return JSON.parse(latest);
+  }
+  const { since, until } = previousMonth(new Date());
+  return runAndStore(env, since, until);
 }
 
 async function collect(env, since, until) {
