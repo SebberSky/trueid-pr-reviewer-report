@@ -67,40 +67,47 @@ async function getLatest(env) {
 }
 
 async function collect(env, since, until) {
+  const repos = (env.BITBUCKET_REPO_SLUGS || env.BITBUCKET_REPO_SLUG || "").split(",").map(x => x.trim()).filter(Boolean);
+  if (!repos.length) throw new Error("No Bitbucket repositories configured");
   const auth = btoa(`${env.BITBUCKET_USERNAME}:${env.BITBUCKET_APP_PASSWORD}`);
   const seen = new Map();
   const stateCounts = { MERGED: 0, OPEN: 0, DECLINED: 0 };
-  for (const state of STATES) {
-    let next = `https://api.bitbucket.org/2.0/repositories/${encodeURIComponent(env.BITBUCKET_WORKSPACE)}/${encodeURIComponent(env.BITBUCKET_REPO_SLUG)}/pullrequests?q=${encodeURIComponent(`state="${state}" AND updated_on>=\"${since}\"`)}&sort=-updated_on&pagelen=50&fields=${encodeURIComponent(FIELDS)}`;
-    while (next) {
-      const response = await fetch(next, { headers: { Authorization: `Basic ${auth}`, Accept: "application/json" } });
-      if (!response.ok) throw new Error(`Bitbucket API returned ${response.status}`);
-      const page = await response.json();
-      for (const pr of page.values || []) {
-        if (!pr.id || seen.has(pr.id)) continue;
-        if (!pr.updated_on || pr.updated_on.slice(0, 10) >= since && pr.updated_on.slice(0, 10) <= until) {
-          seen.set(pr.id, pr);
-          stateCounts[pr.state] = (stateCounts[pr.state] || 0) + 1;
-        }
-      }
-      const oldest = page.values?.at(-1)?.updated_on?.slice(0, 10);
-      next = oldest && oldest < since ? null : page.next || null;
-    }
-  }
   const people = new Map();
-  for (const pr of seen.values()) {
-    for (const participant of pr.participants || []) {
-      if (!participant.approved || !participant.user) continue;
-      const user = participant.user;
-      const key = user.uuid || user.nickname || user.display_name;
-      const current = people.get(key) || { name: user.display_name || user.nickname || "Unknown", uuid: user.uuid || null, approvals: 0, note: null };
-      current.approvals += 1;
-      if (/jarvis/i.test(current.name)) current.note = "bot";
-      people.set(key, current);
+  for (const repo of repos) {
+    const repoSeen = new Map();
+    for (const state of STATES) {
+      let next = `https://api.bitbucket.org/2.0/repositories/${encodeURIComponent(env.BITBUCKET_WORKSPACE)}/${encodeURIComponent(repo)}/pullrequests?q=${encodeURIComponent(`state="${state}" AND updated_on>=\"${since}\"`)}&sort=-updated_on&pagelen=50&fields=${encodeURIComponent(FIELDS)}`;
+      while (next) {
+        const response = await fetch(next, { headers: { Authorization: `Basic ${auth}`, Accept: "application/json" } });
+        if (!response.ok) throw new Error(`Bitbucket API returned ${response.status} for ${repo}`);
+        const page = await response.json();
+        for (const pr of page.values || []) {
+          const key = `${repo}:${pr.id}`;
+          if (!pr.id || repoSeen.has(pr.id)) continue;
+          if (!pr.updated_on || pr.updated_on.slice(0, 10) >= since && pr.updated_on.slice(0, 10) <= until) {
+            repoSeen.set(pr.id, pr);
+            seen.set(key, { ...pr, _repo: repo });
+            stateCounts[pr.state] = (stateCounts[pr.state] || 0) + 1;
+          }
+        }
+        const oldest = page.values?.at(-1)?.updated_on?.slice(0, 10);
+        next = oldest && oldest < since ? null : page.next || null;
+      }
+    }
+    for (const pr of repoSeen.values()) {
+      for (const participant of pr.participants || []) {
+        if (!participant.approved || !participant.user) continue;
+        const user = participant.user;
+        const key = user.uuid || user.nickname || user.display_name;
+        const current = people.get(key) || { name: user.display_name || user.nickname || "Unknown", uuid: user.uuid || null, approvals: 0, note: null };
+        current.approvals += 1;
+        if (/jarvis/i.test(current.name)) current.note = "bot";
+        people.set(key, current);
+      }
     }
   }
   const approvals = [...people.values()].sort((a, b) => b.approvals - a.approvals || a.name.localeCompare(b.name));
-  return { repo: `${env.BITBUCKET_WORKSPACE}/${env.BITBUCKET_REPO_SLUG}`, since, until, pr_total: seen.size, state_counts: stateCounts, total_approvals: approvals.reduce((n, x) => n + x.approvals, 0), approvals, generated_at: new Date().toISOString() };
+  return { repos: repos.map(repo => `${env.BITBUCKET_WORKSPACE}/${repo}`), repo: `${env.BITBUCKET_WORKSPACE} · ${repos.length} repositories`, since, until, pr_total: seen.size, state_counts: stateCounts, total_approvals: approvals.reduce((n, x) => n + x.approvals, 0), approvals, generated_at: new Date().toISOString() };
 }
 
 function previousMonth(date) {
