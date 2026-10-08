@@ -71,6 +71,14 @@ async function runAndStore(env, since, until) {
       if (env.STATS) {
         await env.STATS.put(key, JSON.stringify(report));
         await env.STATS.put("stats:latest", JSON.stringify(report));
+        const months = JSON.parse(await env.STATS.get("stats:months") || "[]");
+        if (!months.includes(month)) months.push(month);
+        months.sort();
+        while (months.length > 12) {
+          const expired = months.shift();
+          await env.STATS.delete(`stats:${expired}`);
+        }
+        await env.STATS.put("stats:months", JSON.stringify(months));
       }
       return report;
     } catch (error) {
