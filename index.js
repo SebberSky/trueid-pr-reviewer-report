@@ -123,7 +123,7 @@ async function collect(env, since, until) {
     for (const state of STATES) {
       let next = `https://api.bitbucket.org/2.0/repositories/${encodeURIComponent(env.BITBUCKET_WORKSPACE)}/${encodeURIComponent(repo)}/pullrequests?q=${encodeURIComponent(`state="${state}" AND updated_on>=\"${since}\"`)}&sort=-updated_on&pagelen=50&fields=${encodeURIComponent(FIELDS)}`;
       while (next) {
-        const response = await fetch(next, { headers: { Authorization: `Basic ${auth}`, Accept: "application/json" } });
+        const response = await fetch(next, { signal: AbortSignal.timeout(10000), headers: { Authorization: `Basic ${auth}`, Accept: "application/json" } });
         if (!response.ok) throw new Error(`Bitbucket API returned ${response.status} for ${repo}`);
         const page = await response.json();
         for (const pr of page.values || []) {
