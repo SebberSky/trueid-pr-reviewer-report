@@ -23,7 +23,9 @@ export default {
         return json(result);
       }
       if (request.method === "GET" && url.pathname === "/api/latest") {
-        const latest = await getLatest(env);
+        const latest = url.searchParams.get("refresh") === "1"
+          ? await runAndStore(env, previousMonth(new Date()).since, previousMonth(new Date()).until)
+          : await getLatest(env);
         return latest ? json(latest) : json({ error: "No report has been generated yet" }, 404);
       }
       const month = url.pathname.match(/^\/api\/(\d{4}-\d{2})$/)?.[1];
@@ -122,7 +124,7 @@ function json(data, status = 200) { return new Response(JSON.stringify(data, nul
 function htmlReport(report) {
   const payload = report ? JSON.stringify(report).replace(/</g, "\\u003c") : "null";
   const title = report ? `Review approvals · ${report.since} – ${report.until}` : "Review approvals";
-  return new Response(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="Monthly Bitbucket pull request approval report"><link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23d9ff57'/%3E%3Cpath d='M8 9h16v4H8zm0 7h11v4H8z' fill='%230b0e0d'/%3E%3C/svg%3E"><title>${escapeHtml(title)}</title><style>${css()}</style></head><body><main><header><div class="eyebrow">TRUEID IOS · BITBUCKET</div><h1>Review approvals</h1><p class="lede">A monthly view of approvals recorded on pull requests.</p></header>${report ? reportMarkup(report) : emptyMarkup()}</main><script>window.__REPORT__=${payload};${report ? '' : `const b=document.querySelector('#refresh');b?.addEventListener('click',async()=>{b.disabled=true;b.textContent='Fetching…';const r=await fetch('/api/latest');if(r.ok){location.reload()}else{b.disabled=false;b.textContent='Try again';document.querySelector('#refresh-status').textContent='Unable to fetch the report. Check the Worker secrets and try again.'}});`}</script></body></html>`, { headers: { "content-type": "text/html; charset=utf-8" } });
+  return new Response(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="Monthly Bitbucket pull request approval report"><link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23d9ff57'/%3E%3Cpath d='M8 9h16v4H8zm0 7h11v4H8z' fill='%230b0e0d'/%3E%3C/svg%3E"><title>${escapeHtml(title)}</title><style>${css()}</style></head><body><main><header><div class="eyebrow">TRUEID IOS · BITBUCKET</div><h1>Review approvals</h1><p class="lede">A monthly view of approvals recorded on pull requests.</p></header>${report ? reportMarkup(report) : emptyMarkup()}</main><script>window.__REPORT__=${payload};${report ? '' : `const b=document.querySelector('#refresh');b?.addEventListener('click',async()=>{b.disabled=true;b.textContent='Fetching…';const r=await fetch('/api/latest?refresh=1');if(r.ok){location.reload()}else{b.disabled=false;b.textContent='Try again';document.querySelector('#refresh-status').textContent='Unable to fetch the report. Check the Worker secrets and try again.'}});`}</script></body></html>`, { headers: { "content-type": "text/html; charset=utf-8" } });
 }
 
 function emptyMarkup() { return '<section class="empty"><h2>No report yet</h2><p>Fetch the most recent completed calendar month directly from Bitbucket.</p><button id="refresh" type="button">Fetch latest full month</button><p id="refresh-status" class="status" role="status"></p></section>'; }
