@@ -1,0 +1,15 @@
+name = "trueid-pr-reviewer-report"
+main = "src/index.js"
+compatibility_date = "2026-10-08"
+
+[triggers]
+crons = ["0 2 1 * *"]
+
+[[kv_namespaces]]
+binding = "STATS"
+id = "REPLACE_WITH_KV_NAMESPACE_ID"
+preview_id = "REPLACE_WITH_KV_PREVIEW_NAMESPACE_ID"
+
+[vars]
+BITBUCKET_WORKSPACE = "truedmp"
+BITBUCKET_REPO_SLUG = "trueid-ios-v3"
