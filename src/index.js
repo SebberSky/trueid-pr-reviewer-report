@@ -1,3 +1,4 @@
+import { appPage } from './ui.js';
 const STATES = ["MERGED", "OPEN", "DECLINED"];
 const FIELDS = [
   "values.id", "values.state", "values.updated_on",
@@ -15,6 +16,11 @@ export default {
     ctx.waitUntil(runAndStore(env, since, until));
   },
   async fetch(request, env, ctx) {
+    if (!env.STATS && env.REPORTS) env = { ...env, STATS: {
+      get: async key => { const object = await env.REPORTS.get(key); return object ? object.text() : null; },
+      put: (key, value) => env.REPORTS.put(key, value),
+      delete: key => env.REPORTS.delete(key)
+    }};
     const url = new URL(request.url);
     try {
       if (request.method === "POST" && url.pathname === "/run") {
@@ -39,10 +45,10 @@ export default {
         return json(await runAndStore(env, since, until));
       }
       if (request.method === "GET" && (url.pathname === "/" || url.pathname === "/index.html")) {
-        return loadingPage();
+        return appPage(css());
       }
       if (request.method === "GET" && url.pathname === "/report") {
-        return reportClientPage(LAST_REPORT || await getLatest(env));
+        return appPage(css());
       }
       return json({ error: "Not found" }, 404);
     } catch (error) {
@@ -63,7 +69,7 @@ async function runAndStore(env, since, until) {
       return report;
     }
   }
-  if (IN_FLIGHT.has(key)) return IN_FLIGHT.get(key);
+  // Worker promises cannot safely be shared across request lifetimes.
   const job = (async () => {
     try {
       const report = await collect(env, since, until);
@@ -97,12 +103,12 @@ async function runAndStore(env, since, until) {
 }
 
 async function getLatest(env) {
-  if (LAST_REPORT) return LAST_REPORT;
-  if (env.STATS) {
-    const latest = await env.STATS.get("stats:latest");
-    if (latest) return JSON.parse(latest);
-  }
   const { since, until } = previousMonth(new Date());
+  if (env.STATS) {
+    const stored = await env.STATS.get(`stats:${since.slice(0, 7)}`);
+    if (stored) return JSON.parse(stored);
+  }
+  if (LAST_REPORT?.since === since) return LAST_REPORT;
   try {
     return await runAndStore(env, since, until);
   } catch (error) {
@@ -122,7 +128,8 @@ async function collect(env, since, until) {
     const repoSeen = new Map();
     const repoCounts = { MERGED: 0, OPEN: 0, DECLINED: 0 };
     for (const state of STATES) {
-      let next = `https://api.bitbucket.org/2.0/repositories/${encodeURIComponent(env.BITBUCKET_WORKSPACE)}/${encodeURIComponent(repo)}/pullrequests?q=${encodeURIComponent(`state="${state}" AND updated_on>=\"${since}\"`)}&sort=-updated_on&pagelen=50&fields=${encodeURIComponent(FIELDS)}`;
+      const endExclusive = new Date(new Date(until + 'T00:00:00Z').getTime() + 86400000).toISOString().slice(0,10);
+      let next = `https://api.bitbucket.org/2.0/repositories/${encodeURIComponent(env.BITBUCKET_WORKSPACE)}/${encodeURIComponent(repo)}/pullrequests?q=${encodeURIComponent(`state="${state}" AND updated_on>="${since}" AND updated_on<"${endExclusive}"`)}&sort=-updated_on&pagelen=50&fields=${encodeURIComponent(FIELDS)}`;
       while (next) {
         const response = await fetch(next, { headers: { Authorization: `Basic ${auth}`, Accept: "application/json" } });
         if (!response.ok) throw new Error(`Bitbucket API returned ${response.status} for ${repo}`);
