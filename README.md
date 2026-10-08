@@ -1,6 +1,8 @@
 # TrueID PR reviewer report
 
-Cloudflare Free Worker that counts actual Bitbucket PR approvals (`participants[].approved === true`) for `truedmp/trueid-ios-v3`, stores monthly reports in KV, and serves a responsive HTML report.
+Cloudflare Worker that counts Bitbucket PR approvals (`participants[].approved === true`) across configured repositories. It loads the previous completed month on entry, supports month checkboxes and multiple repository filters, and stores up to 12 monthly JSON reports. Jarvis is excluded.
+
+The deployed ChatGPT Site uses the `REPORTS` R2 binding declared in `.openai/hosting.json`. A standalone Wrangler deployment can use the `STATS` KV binding in `wrangler.toml`. Configure `BITBUCKET_REPO_SLUGS` as a comma-separated list for multi-repository reports. `index.js` is the standalone Sites entrypoint; `src/index.js` imports the UI from `src/ui.js` for Wrangler.
 
 ## Setup
 
@@ -20,8 +22,8 @@ The cron trigger runs at `02:00 UTC` on the first day of every month and process
 
 ## Local validation
 
-Use `npx wrangler dev` after configuring a local KV namespace and secrets in `.dev.vars`. The Worker deliberately returns an empty-state page until a real report exists; it does not ship fake metrics.
+Use `npx wrangler dev` after configuring KV and secrets in `.dev.vars`. The opening page displays full-screen loading while fetching the latest completed month. Other months load only when selected.
 
 ## Data and safety
 
-The collector requests participant fields explicitly, deduplicates PR IDs across states, stops paginating once records are older than the window, and never logs credentials or authorization headers. Jarvis reviewers are retained in the report and marked `bot`; human share percentages exclude them.
+The collector requests participant fields explicitly, deduplicates PR IDs across states, and never logs credentials or authorization headers. Counts reflect current approval flags on PRs updated within each reporting month, rather than historical approval-event timestamps. Monthly reports persist as JSON; loading an existing month reads storage instead of fetching every month.
