@@ -118,12 +118,13 @@ async function collect(env, since, until) {
   const seen = new Map();
   const stateCounts = { MERGED: 0, OPEN: 0, DECLINED: 0 };
   const people = new Map();
-  for (const repo of repos) {
+  const repoResults = await Promise.all(repos.map(async repo => {
     const repoSeen = new Map();
+    const repoCounts = { MERGED: 0, OPEN: 0, DECLINED: 0 };
     for (const state of STATES) {
       let next = `https://api.bitbucket.org/2.0/repositories/${encodeURIComponent(env.BITBUCKET_WORKSPACE)}/${encodeURIComponent(repo)}/pullrequests?q=${encodeURIComponent(`state="${state}" AND updated_on>=\"${since}\"`)}&sort=-updated_on&pagelen=50&fields=${encodeURIComponent(FIELDS)}`;
       while (next) {
-        const response = await fetch(next, { signal: AbortSignal.timeout(10000), headers: { Authorization: `Basic ${auth}`, Accept: "application/json" } });
+        const response = await fetch(next, { headers: { Authorization: `Basic ${auth}`, Accept: "application/json" } });
         if (!response.ok) throw new Error(`Bitbucket API returned ${response.status} for ${repo}`);
         const page = await response.json();
         for (const pr of page.values || []) {
@@ -132,13 +133,18 @@ async function collect(env, since, until) {
           if (!pr.updated_on || pr.updated_on.slice(0, 10) >= since && pr.updated_on.slice(0, 10) <= until) {
             repoSeen.set(pr.id, pr);
             seen.set(key, { ...pr, _repo: repo });
-            stateCounts[pr.state] = (stateCounts[pr.state] || 0) + 1;
+            repoCounts[pr.state] = (repoCounts[pr.state] || 0) + 1;
           }
         }
         const oldest = page.values?.at(-1)?.updated_on?.slice(0, 10);
         next = oldest && oldest < since ? null : page.next || null;
       }
     }
+    return { repo, repoSeen, repoCounts };
+  }));
+  for (const { repo, repoSeen, repoCounts } of repoResults) {
+    for (const [state, count] of Object.entries(repoCounts)) stateCounts[state] += count;
+    for (const [id, pr] of repoSeen) seen.set(`${repo}:${id}`, { ...pr, _repo: repo });
     for (const pr of repoSeen.values()) {
       for (const participant of pr.participants || []) {
         if (!participant.approved || !participant.user) continue;
