@@ -98,10 +98,11 @@ async function collect(env, since, until) {
       for (const participant of pr.participants || []) {
         if (!participant.approved || !participant.user) continue;
         const user = participant.user;
+        const name = user.display_name || user.nickname || "Unknown";
+        if (/jarvis/i.test(name)) continue;
         const key = user.uuid || user.nickname || user.display_name;
-        const current = people.get(key) || { name: user.display_name || user.nickname || "Unknown", uuid: user.uuid || null, approvals: 0, note: null };
+        const current = people.get(key) || { name, uuid: user.uuid || null, approvals: 0, note: null };
         current.approvals += 1;
-        if (/jarvis/i.test(current.name)) current.note = "bot";
         people.set(key, current);
       }
     }
