@@ -6,6 +6,8 @@ const FIELDS = [
   "next", "size"
 ].join(",");
 let LAST_REPORT = null;
+const IN_FLIGHT = new Map();
+const REFRESH_COOLDOWN_MS = 5 * 60 * 1000;
 
 export default {
   async scheduled(event, env, ctx) {
@@ -51,14 +53,39 @@ export default {
 };
 
 async function runAndStore(env, since, until) {
-  const report = await collect(env, since, until);
-  LAST_REPORT = report;
-  if (env.STATS) {
-    const month = since.slice(0, 7);
-    await env.STATS.put(`stats:${month}`, JSON.stringify(report));
-    await env.STATS.put("stats:latest", JSON.stringify(report));
+  const month = since.slice(0, 7);
+  const key = `stats:${month}`;
+  const cached = env.STATS ? await env.STATS.get(key) : null;
+  if (cached) {
+    const report = JSON.parse(cached);
+    if (Date.now() - new Date(report.generated_at || 0).getTime() < REFRESH_COOLDOWN_MS) {
+      LAST_REPORT = report;
+      return report;
+    }
   }
-  return report;
+  if (IN_FLIGHT.has(key)) return IN_FLIGHT.get(key);
+  const job = (async () => {
+    try {
+      const report = await collect(env, since, until);
+      LAST_REPORT = report;
+      if (env.STATS) {
+        await env.STATS.put(key, JSON.stringify(report));
+        await env.STATS.put("stats:latest", JSON.stringify(report));
+      }
+      return report;
+    } catch (error) {
+      if (cached) {
+        const report = JSON.parse(cached);
+        LAST_REPORT = report;
+        return report;
+      }
+      throw error;
+    } finally {
+      IN_FLIGHT.delete(key);
+    }
+  })();
+  IN_FLIGHT.set(key, job);
+  return job;
 }
 
 async function getLatest(env) {
